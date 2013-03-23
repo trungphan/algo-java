@@ -111,20 +111,19 @@ public class QuickSort {
 
     }
 
+    /**
+    *
+    * Improve on quicksort, but also handle duplicate nicely.
+    * 
+    * see http://golang.org/src/pkg/sort/sort.go?s=4375:4400#L179, which is based on "Engineering a Sort Function"
+    * @param a
+    * @param lo
+    * @param hi
+    */
     public static void quicksort2(int[] a) {
         quicksort2(a, 0, a.length-1);
     }
 
-
-    /**
-     *
-     * Improve on quicksort, but also handle duplicate nicely.
-     * 
-     * see http://golang.org/src/pkg/sort/sort.go?s=4375:4400#L179, which is based on "Engineering a Sort Function"
-     * @param a
-     * @param lo
-     * @param hi
-     */
     private static void quicksort2(int[] a, int lo, int hi) {
     	
     	while (hi > lo) {
@@ -164,7 +163,6 @@ public class QuickSort {
     		}
     	}
     }
-
 
     private static int selectPivot(int[] a, int lo, int hi) {
 

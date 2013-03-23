@@ -55,6 +55,7 @@ public class SortRunner {
         test(QuickSort.class, "quicksort3way", a);
         test(QuickSort.class, "quicksort2", a);
         test(IntroSort.class, "introsort", a);
+        test(HeapSort.class, "heapsort", a);
         test(SmoothSort.class, "smoothsort", a);
         test(MergeSort.class, "mergesort", a);
         test(MergeSort.class, "bottomUpMergesort", a);
@@ -112,12 +113,13 @@ public class SortRunner {
 
         Random random = new Random(2012);
         for (int i = 0; i < N; i++) {
-            a[i] = i;
             int randomIndex = random.nextInt(i + 1);
             if (randomIndex != i) {
-                int tmp = a[i];
                 a[i] = a[randomIndex];
-                a[randomIndex] = tmp;
+                a[randomIndex] = i;
+            }
+            else {
+            	a[i] = i;
             }
         }
 
