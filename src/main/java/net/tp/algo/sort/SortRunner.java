@@ -50,7 +50,9 @@ public class SortRunner {
     public static void grandTest(String name, int[] a) {
         System.out.println(name);
         System.out.println(String.format("%20s %20s %20s %20s %20s", "", "N (K)", "D (s)", "Read (K)", "Write (K)"));
-
+        
+        test(BucketSort.class, "countingsort", a);
+        test(BucketSort.class, "radixsort", a);
         test(QuickSort.class, "quicksort", a);
         test(QuickSort.class, "quicksort3way", a);
         test(QuickSort.class, "quicksort2", a);
