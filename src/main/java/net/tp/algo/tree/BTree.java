@@ -1,6 +1,5 @@
 package net.tp.algo.tree;
 
-import java.io.File;
 import java.nio.ByteBuffer;
 import java.util.Arrays;
 
@@ -9,29 +8,37 @@ public class BTree {
 	private int n;
 	private BlockStore bs;
 	private int ri;
-	private transient byte[] buf;
 	
-	public BTree(File backedStorage) {
-		
-		this.bs = new BlockStore(backedStorage);
-		this.buf = new byte[4096];
+	public BTree(BlockIO blockIO) {
+		this.bs = new BlockStore(blockIO);
 		readMetaData();
 	}
 	
 	private void readMetaData() {
-		bs.readBlock(1, buf);
+		
+		byte[] buf = new byte[bs.blocksize()];
+		
+		if (bs.hasBlock(1)) {
+			bs.readBlock(1, buf);
+		}
+		else {
+			int i = bs.placeBlock(buf);
+			if (i != 1) {
+				throw new IllegalStateException("DataStore is corrupted.");
+			}
+			bs.flush();
+		}
+		
 		ByteBuffer bb = ByteBuffer.wrap(buf);
 		n = bb.getInt();
 		ri = bb.getInt();
 		if (n == 0 && ri == 0) {
 			ri = -1;
-			bb.putInt(ri);
-			bs.placeBlock(buf);
 		}
 	}
 	
 	private void writeMetaData() {
-		Arrays.fill(buf, (byte)0);
+		byte[] buf = new byte[bs.blocksize()];
 		ByteBuffer bb = ByteBuffer.wrap(buf);
 		bb.putInt(n); bb.putInt(ri);
 		bs.writeBlock(1, buf);
@@ -87,22 +94,17 @@ public class BTree {
     }    
 	
 	private BNode getNode(int i) {
+		byte[] buf = new byte[bs.blocksize()];
 		bs.readBlock(i, buf);
 		BNode node = new BNode(buf);
 		return node;
 	}
 	
-	public void close() {
-		bs.close();
-	}
-	
-	
 	public static void main(String ... args) {
-		BTree btree = new BTree(new File("Test.bin"));
+//		BTree btree = new BTree(new FileBackedBlockIO(new File("Test.bin"), 4096));
+		BTree btree = new BTree(new InMemoryBlockIO(4 * 8));
 
 		btree.add(20);
-		
-		btree.close();
 		
 	}
 	

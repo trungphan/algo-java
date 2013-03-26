@@ -1,170 +1,292 @@
 package net.tp.algo.tree;
 
-import java.io.Closeable;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
-import java.io.IOException;
 import java.io.UnsupportedEncodingException;
 import java.nio.ByteBuffer;
-import java.nio.channels.FileChannel;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.Map;
+import java.util.NoSuchElementException;
 import java.util.Set;
+
+import junit.framework.Assert;
+
+import org.junit.Test;
 
 /**
  * ref http://opendatastructures.org/ods-java/14_2_B_Trees.html
- * @author Trung
+ * @author Trung Phan
  *
  * @param <N>
  */
-public class BlockStore implements Closeable {
+public class BlockStore {
 	
-	private File file;
-	private FileInputStream fis;
-	private FileOutputStream fos;
-	private FileChannel fic;
-	private FileChannel foc;
-	private int blocksize = 4096;
-	private Set<Integer> freeBlocks = new HashSet<>();
-	private byte[] freeBlockBits = new byte[4096];
-	private int blocks;
-
-	public BlockStore(File file) {
-		this.file = file;
-		if (!this.file.exists()) {
-			try {
-				this.file.createNewFile();
-			} catch (IOException e) {
-				throw new RuntimeException(e);
-			}
+	private int addrSeq;
+	
+	private int prevMaxBlocks;
+	private Set<Integer> prevFreeBlocks;
+	private Map<Integer, Integer> prevDictMap;
+	
+	private int maxBlocks;
+	private Set<Integer> freeBlocks;
+	private Map<Integer, Integer> dictMap;
+	
+	/**
+	 * safeFreeBlock is the intersection between prevFreeBlocks and freeBlocks.
+	 * It's maintained here to guarantee O(1) time to get freeblock
+	 */
+	private Set<Integer> safeFreeBlocks;
+	
+	private final BlockIO blockIO;
+	
+	public BlockStore(BlockIO blockIO) {
+		
+		this.blockIO = blockIO;
+		
+		if (blockIO == null || blockIO.blocksize() <= 0) {
+			throw new IllegalArgumentException();
 		}
 		
-		this.blocks = (int)this.file.length() / 4096 + 1;
-		
-		try {
-			this.fis = new FileInputStream(this.file);
-			this.fic = fis.getChannel();
-			this.fos = new FileOutputStream(this.file, true);
-			this.foc = fos.getChannel();
-			
-		} catch (IOException e) {
-			throw new RuntimeException(e);
-		}
-		
+		this.prevDictMap = new HashMap<>();
+		this.prevFreeBlocks = new HashSet<>();
 		
 		readMetaData();
-		
-	}
-	
-	@Override
-	public void finalize() {
-		close();
 	}
 	
 	private void readMetaData() {
-		readBlock(0, freeBlockBits);
-		for (int x = 0; x < 4096; x++) {
-			int i = (x << 8);
-			byte bits = freeBlockBits[x];
-			while (bits > 0) {
-				if ((bits & (byte)1) > 0) {
-					freeBlocks.add(i);
-				}
-				bits >>>= 1;
-				i++;
-			}
+		byte[] buf = new byte[blockIO.blocksize()];
+		
+		blockIO.readDiskBlock(0, buf);
+		ByteBuffer bb = ByteBuffer.wrap(buf);
+		
+		this.prevMaxBlocks = bb.getInt();
+		if (this.prevMaxBlocks == 0) {
+			this.prevMaxBlocks = 1;
 		}
+		this.maxBlocks = this.prevMaxBlocks;
+		this.addrSeq = bb.getInt();
+		
+		int dictBlockIndex = bb.getInt();
+		int freeBlockIndex = bb.getInt();
+		
+		this.prevDictMap = l2m(loadIntArray(blockIO, dictBlockIndex));
+		this.dictMap = new HashMap<>(this.prevDictMap);
+		this.prevFreeBlocks = new HashSet<>(loadIntArray(blockIO, freeBlockIndex));
+		this.freeBlocks = new HashSet<>(this.prevFreeBlocks);
+		
+		this.safeFreeBlocks = new HashSet<>(this.prevFreeBlocks);
 	}
 	
 	private void writeMetaData() {
-		writeBlock(0, freeBlockBits);
+		
+		List<Integer> blocksForFreeBlocks = newLogicalBlocks((this.freeBlocks.size() + 3) / (blockIO.blocksize() / 4 - 1));
+		
+		List<Integer> blocksForDictBlocks = newLogicalBlocks((this.dictMap.size() + 7) / (blockIO.blocksize() / 8 - 1) );
+
+		int freeIndex = storeIntArray(blockIO, new LinkedList<>(this.freeBlocks), blocksForFreeBlocks);
+		int dictIndex = storeIntArray(blockIO, m2l(this.prevDictMap), blocksForDictBlocks);
+
+		byte[] buf = new byte[blockIO.blocksize()];
+		ByteBuffer bb = ByteBuffer.wrap(buf);
+		bb.putInt(this.maxBlocks);
+		bb.putInt(this.addrSeq);
+		bb.putInt(dictIndex);
+		bb.putInt(freeIndex);
+		
+		blockIO.writeDiskBlock(0, buf);
+		this.prevFreeBlocks = this.freeBlocks;
+		this.prevDictMap = this.dictMap;
 	}
 	
-	public void close() {
-		if (this.fis != null) {
-			try {
-				this.fis.close();
-			} catch (IOException e) {
-				e.printStackTrace();
-			}
-			this.fis = null;
+	private static Map<Integer, Integer> l2m(List<Integer> l) {
+		Map<Integer, Integer> result = new HashMap<>();
+		for (int i = 0; i < l.size(); i += 2) {
+			result.put(l.get(i), l.get(i+1));
 		}
-		if (this.fos != null) {
-			try {
-				this.fos.flush();
-				this.fos.close();
-			} catch (IOException e) {
-				e.printStackTrace();
-			}
-			this.fos = null;
+		return result;
+	}
+	
+	private static List<Integer> m2l(Map<Integer, Integer> m) {
+		List<Integer> result = new LinkedList<>();
+		for (Map.Entry<Integer, Integer> e : m.entrySet()) {
+			result.add(e.getKey());
+			result.add(e.getValue());
+		}
+		return result;
+	}
+	
+	
+	private List<Integer> newLogicalBlocks(int count) {
+		List<Integer> result = new ArrayList<>();
+		while (count > 0) {
+			result.add(this.dictMap.get(newLogicalBlock()));
+			count--;
+		}
+		return result;
+	}
+	
+	private int newLogicalBlock() {
+		
+		int allocBlock = newDiskBlock();
+
+		this.freeBlocks.remove(allocBlock);
+		this.dictMap.put(++this.addrSeq, allocBlock);
+		
+		return this.addrSeq;
+	}
+
+	private int newDiskBlock() {		
+		int allocBlock = this.safeFreeBlocks.isEmpty() ? this.maxBlocks++ : safeFreeBlocks.iterator().next();
+		return allocBlock;
+	}
+	
+	private int relocateLogicalBlock(int i) {
+		Integer currDiskAddr = this.dictMap.get(i);
+		if (currDiskAddr == null) {
+			throw new IllegalStateException();
 		}
 		
+		int newDiskAddr = newDiskBlock();
+		this.dictMap.put(i, newDiskAddr);
+		this.freeBlocks.remove(currDiskAddr);
+
+		return newDiskAddr;
+	}
+	
+	public int blocksize() {
+		return blockIO.blocksize();
+	}
+	
+	public boolean hasBlock(int i) {
+		return this.dictMap.containsKey(i);
 	}
 	
 	public void readBlock(int i, byte[] bytes) {
-		try {
-			ByteBuffer bb = ByteBuffer.wrap(bytes);
-			fic.read(bb, i * blocksize);
-			
-			System.out.println(Arrays.toString(bytes));
-			
-		} catch (IOException e) {
-			throw new IllegalStateException(e);
+		Integer diskAddr = this.dictMap.get(i);
+		if (diskAddr == null || diskAddr == 0) {
+			throw new NoSuchElementException();
 		}
+		blockIO.readDiskBlock(diskAddr, bytes);
 	}
 	
 	public void writeBlock(int i, byte[] bytes) {
 		
-		try {
-			ByteBuffer bb = ByteBuffer.wrap(bytes);
-			foc.write(bb, i * blocksize);
-		} catch (IOException e) {
-			throw new IllegalStateException(e);
+		Integer diskAddr = this.dictMap.get(i);
+		if (diskAddr == null || diskAddr == 0) {
+			throw new NoSuchElementException();
+		}
+		
+		if (diskAddr == this.prevDictMap.get(i)) {
+			// copy of write
+			diskAddr = relocateLogicalBlock(i);
+		}
+		
+		blockIO.writeDiskBlock(diskAddr, bytes);
+	}
+	
+	public int placeBlock(byte[] bytes) {
+		int addr = newLogicalBlock();
+		int diskAddr = this.dictMap.get(addr);
+		blockIO.writeDiskBlock(diskAddr, bytes);
+		return addr;
+	}
+	
+	public void freeBlock(int i) {
+		Integer diskAddr = this.dictMap.get(i);
+		if (diskAddr == null || diskAddr == 0) {
+			throw new NoSuchElementException();
+		}
+
+		this.dictMap.remove(i);
+		this.freeBlocks.add(diskAddr);
+		if (diskAddr >= this.prevMaxBlocks) {
+			this.safeFreeBlocks.add(diskAddr);
 		}
 		
 	}
 	
-	public int placeBlock(byte[] bytes) {
-		
-		int i = freeBlocks.size() > 0 ? freeBlocks.iterator().next() : blocks++;
-		
-		freeBlockBits[i >>> 8] &= ~((byte)1 << (i % 8));
-		freeBlocks.remove(i);
-		
+	public void flush() {
 		writeMetaData();
-		writeBlock(i, bytes);
-		
-		return i;
+		blockIO.flush();
 	}
 	
-	public void freeBlock(int i) {
-		freeBlockBits[i >>> 8] |= (byte)1 << (i % 8);
-		freeBlocks.add(i);
+	private static List<Integer> loadIntArray(BlockIO blockIO, int addr) {
+		List<Integer> result = new ArrayList<>();
+		byte[] buf = new byte[blockIO.blocksize()];
 		
-		writeMetaData();
+		while (addr > 0) {
+			Arrays.fill(buf, (byte)0);
+			blockIO.readDiskBlock(addr, buf);
+			ByteBuffer bb = ByteBuffer.wrap(buf);
+
+			int n = bb.getInt();
+			addr = bb.getInt(); // nextDiskAddr
+			
+			for (int i = 0; i < n; i++) {
+				result.add(bb.getInt());
+			}
+			
+		}
+		
+		return result;
 	}
+	
+	private static int storeIntArray(BlockIO blockIO, List<Integer> array, List<Integer> blocks) {
+		int last = 0;
+		int arrayIndex = 0;
+		for (int b : blocks) {
+			byte[] buf = new byte[blockIO.blocksize()];
+			ByteBuffer bb = ByteBuffer.wrap(buf);
+			bb.putInt(0); // temp size; will be changed.
+			bb.putInt(last);
+			last = b;
+			
+			int count = 0;
+			while (bb.remaining() >= 4 && arrayIndex < array.size()) {
+				bb.putInt(array.get(arrayIndex++));
+				count++;
+			}
+			
+			bb.putInt(0, count);
+			blockIO.writeDiskBlock(b, buf);
+		}
+		return last;
+	}
+	
+	
 
 	
-	
+
 	public static void main(String ... strings) throws UnsupportedEncodingException {
 
-		BlockStore bs = new BlockStore(new File("Test.bin"));
+	}
+	
+	
+	
+	public static class TestCase {
 		
-		byte[] buf = new byte[4096];
-
-		int b1 = bs.placeBlock("Block 1".getBytes());
-		int b2 = bs.placeBlock("Block 2".getBytes());
-		int b3 = bs.placeBlock("Block 3".getBytes());
-		int b4 = bs.placeBlock("Block 4".getBytes());
+		@Test
+		public void storeArray() {
+			
+			InMemoryBlockIO blockIO = new InMemoryBlockIO(4 * 4); // 4 int
+			List<Integer> array = Arrays.asList(101, 102, 103, 104, 105, 106, 107);
+			
+			int i = storeIntArray(blockIO, array, Arrays.asList(1, 2, 3, 4));
+			System.out.println(i);
+			
+			List<Integer> array2 = loadIntArray(blockIO, i);
+			Collections.sort(array2);
+			
+			Assert.assertEquals(array, array2);
+			
+		}
 		
-		bs.freeBlock(b3);
 		
-		int b5 = bs.placeBlock("Block 5".getBytes());
 		
-		bs.freeBlock(b2);
-		
-		bs.close();
 	}
 	
 }
