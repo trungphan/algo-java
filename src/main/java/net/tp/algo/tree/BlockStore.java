@@ -35,6 +35,8 @@ public class BlockStore {
 	private Set<Integer> freeBlocks;
 	private Map<Integer, Integer> dictMap;
 	
+	private boolean changed = false;
+	
 	/**
 	 * safeFreeBlock is the intersection between prevFreeBlocks and freeBlocks.
 	 * It's maintained here to guarantee O(1) time to get freeblock
@@ -60,7 +62,7 @@ public class BlockStore {
 	private void readMetaData() {
 		byte[] buf = new byte[blockIO.blocksize()];
 		
-		blockIO.readDiskBlock(0, buf);
+		blockIO.readBlock(0, buf);
 		ByteBuffer bb = ByteBuffer.wrap(buf);
 		
 		this.prevMaxBlocks = bb.getInt();
@@ -97,7 +99,7 @@ public class BlockStore {
 		bb.putInt(dictIndex);
 		bb.putInt(freeIndex);
 		
-		blockIO.writeDiskBlock(0, buf);
+		blockIO.writeBlock(0, buf);
 		this.prevFreeBlocks = this.freeBlocks;
 		this.prevDictMap = this.dictMap;
 	}
@@ -135,12 +137,14 @@ public class BlockStore {
 
 		this.freeBlocks.remove(allocBlock);
 		this.dictMap.put(++this.addrSeq, allocBlock);
+		this.changed = true;
 		
 		return this.addrSeq;
 	}
 
 	private int newDiskBlock() {		
 		int allocBlock = this.safeFreeBlocks.isEmpty() ? this.maxBlocks++ : safeFreeBlocks.iterator().next();
+		this.changed = true;
 		return allocBlock;
 	}
 	
@@ -153,6 +157,7 @@ public class BlockStore {
 		int newDiskAddr = newDiskBlock();
 		this.dictMap.put(i, newDiskAddr);
 		this.freeBlocks.remove(currDiskAddr);
+		this.changed = true;
 
 		return newDiskAddr;
 	}
@@ -165,12 +170,18 @@ public class BlockStore {
 		return this.dictMap.containsKey(i);
 	}
 	
+	public byte[] readBlock(int i) {
+		byte[] buf = new byte[blockIO.blocksize()];
+		readBlock(i, buf);
+		return buf;
+	}
+	
 	public void readBlock(int i, byte[] bytes) {
 		Integer diskAddr = this.dictMap.get(i);
 		if (diskAddr == null || diskAddr == 0) {
 			throw new NoSuchElementException();
 		}
-		blockIO.readDiskBlock(diskAddr, bytes);
+		blockIO.readBlock(diskAddr, bytes);
 	}
 	
 	public void writeBlock(int i, byte[] bytes) {
@@ -185,13 +196,13 @@ public class BlockStore {
 			diskAddr = relocateLogicalBlock(i);
 		}
 		
-		blockIO.writeDiskBlock(diskAddr, bytes);
+		blockIO.writeBlock(diskAddr, bytes);
 	}
 	
 	public int placeBlock(byte[] bytes) {
 		int addr = newLogicalBlock();
 		int diskAddr = this.dictMap.get(addr);
-		blockIO.writeDiskBlock(diskAddr, bytes);
+		blockIO.writeBlock(diskAddr, bytes);
 		return addr;
 	}
 	
@@ -203,6 +214,7 @@ public class BlockStore {
 
 		this.dictMap.remove(i);
 		this.freeBlocks.add(diskAddr);
+		this.changed = true;
 		if (diskAddr >= this.prevMaxBlocks) {
 			this.safeFreeBlocks.add(diskAddr);
 		}
@@ -210,8 +222,19 @@ public class BlockStore {
 	}
 	
 	public void flush() {
-		writeMetaData();
-		blockIO.flush();
+		if (changed) {
+			writeMetaData();
+			blockIO.flush();
+			
+			this.prevDictMap = this.dictMap;
+			this.dictMap = new HashMap<>(this.prevDictMap);
+			this.prevFreeBlocks = this.freeBlocks;
+			this.freeBlocks = new HashSet<>(prevFreeBlocks);
+			this.prevMaxBlocks = this.maxBlocks;
+			this.safeFreeBlocks = new HashSet<>(this.prevFreeBlocks);
+			
+			changed = false;
+		}
 	}
 	
 	private static List<Integer> loadIntArray(BlockIO blockIO, int addr) {
@@ -220,7 +243,7 @@ public class BlockStore {
 		
 		while (addr > 0) {
 			Arrays.fill(buf, (byte)0);
-			blockIO.readDiskBlock(addr, buf);
+			blockIO.readBlock(addr, buf);
 			ByteBuffer bb = ByteBuffer.wrap(buf);
 
 			int n = bb.getInt();
@@ -252,7 +275,7 @@ public class BlockStore {
 			}
 			
 			bb.putInt(0, count);
-			blockIO.writeDiskBlock(b, buf);
+			blockIO.writeBlock(b, buf);
 		}
 		return last;
 	}

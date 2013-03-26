@@ -20,7 +20,7 @@ public class InMemoryBlockIO implements BlockIO {
 	}
 
 	@Override
-	public void readDiskBlock(int i, byte[] bytes) {
+	public void readBlock(int i, byte[] bytes) {
 		Arrays.fill(bytes, (byte)0);
 		if (i < blocks.size()) {
 			byte[] buf = blocks.get(i);
@@ -31,7 +31,7 @@ public class InMemoryBlockIO implements BlockIO {
 	}
 
 	@Override
-	public void writeDiskBlock(int i, byte[] bytes) {
+	public void writeBlock(int i, byte[] bytes) {
 		while (i >= blocks.size()) {
 			blocks.add(null);
 		}

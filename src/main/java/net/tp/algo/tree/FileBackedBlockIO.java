@@ -64,7 +64,7 @@ public class FileBackedBlockIO implements BlockIO, Closeable {
 	}
 
 	@Override
-	public void readDiskBlock(int i, byte[] bytes) {
+	public void readBlock(int i, byte[] bytes) {
 		
 		Arrays.fill(bytes, (byte)0);
 		ByteBuffer bb = ByteBuffer.wrap(bytes);
@@ -76,7 +76,7 @@ public class FileBackedBlockIO implements BlockIO, Closeable {
 	}
 
 	@Override
-	public void writeDiskBlock(int i, byte[] bytes) {
+	public void writeBlock(int i, byte[] bytes) {
 		byte[] buf;
 		if (bytes.length == blocksize) {
 			buf = bytes;
