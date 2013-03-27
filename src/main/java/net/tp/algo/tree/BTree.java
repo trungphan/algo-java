@@ -4,6 +4,9 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.Arrays;
 import java.util.Comparator;
+import java.util.LinkedList;
+import java.util.Queue;
+import java.util.Scanner;
 
 import net.tp.algo.util.NaturalComparator;
 
@@ -56,7 +59,7 @@ public class BTree<K> {
 			if (i != 1) {
 				throw new IllegalStateException("DataStore is corrupted.");
 			}
-			bs.flush();
+			bs.commit();
 		}
 		
 		ByteBuffer bb = ByteBuffer.wrap(buf);
@@ -81,7 +84,7 @@ public class BTree<K> {
 			root.insertKey(0, key);
 			root.persistNew();
 			writeMetaData();
-			bs.flush();
+			bs.commit();
 			return true;
 		}
 		else {
@@ -97,7 +100,7 @@ public class BTree<K> {
 				
 				int pos = Arrays.binarySearch(u.keys, 0, u.last, key, this.comparator);
 				if (pos >= 0) {
-					bs.flush(); // there might be some update before
+					bs.commit(); // there might be some update before
 					return false; // key already exist
 				}
 				pos = -1 - pos; // pos now becomes the insertion point
@@ -105,7 +108,7 @@ public class BTree<K> {
 				if (u.isLeaf) {
 					u.insertKey(pos, key);
 					u.persist();
-					bs.flush();
+					bs.commit();
 					return true;
 				}
 				else {
@@ -120,61 +123,205 @@ public class BTree<K> {
 		if (root == null) {
 			return false;
 		}
-		else {
-			BNode<K> u = root;
-			BNode<K> parent = null;
-			BNode<K> found = null;
 			
-			while (true) {
-				if (u.low() || (u == root && u.keysSize() == 1)) {
-					handleUnderflow(u, parent, key);
+		BNode<K> found = null;
+		int foundPos = 0;
+		int pos = 0;
+		
+		for (BNode<K> u = root, parent = null; ; parent = u, u = u.getChild(pos)  ) {
+			if (u.low() || (u == root && u.keysSize() == 1)) {
+				handleUnderflow(u, parent, key);
+			}
+			
+			pos = Arrays.binarySearch(u.keys, 0, u.last, key, this.comparator);
+			if (pos >= 0) {
+				found = u;
+				foundPos = pos;
+				if (!u.isLeaf) {
+					pos++;
 				}
-
+			}
+			else if (found != null) {
+				pos = 0;
+			}
+			else {
+				pos = -1 - pos;
+			}
+			
+			if (u.isLeaf) {
 				if (found == null) {
-					int pos = Arrays.binarySearch(u.keys, 0, u.last, key, this.comparator);
-					if (pos >= 0) {
-						found = u;
-						if (u.isLeaf) {
-							u.deleteKey(pos);
-							u.persist();
-							if (u == root) {
-								writeMetaData();
-							}
-							bs.flush();
-							return true;
-						}
-						else {
-							u = u.getChild(pos + 1);
-						}
-					}
-					else {
-						pos = -1 - pos;
-						u = u.getChild(pos);
-						continue;
-					}
-				}				
-				else if (!u.isLeaf) {
-					u = u.getChild(0); // keep going to the left to find the smallest
+					bs.commit();
+					return false;
 				}
-				else { // u is leaf
-					int pos = Arrays.binarySearch(found.keys, 0, found.last, key, this.comparator);
-					found.keys[pos] = u.keys[0];
-					found.persist();
-					if (found == root) {
-						writeMetaData();
+				else {
+					if (found != u) {
+						found.keys[foundPos] = u.keys[pos];
+						found.persist();
 					}
 					
-					u.deleteKey(0);
+					u.deleteKey(pos, true);
 					u.persist();
-					bs.flush();
+					if (found == root || u == root) {
+						writeMetaData();
+					}
+					bs.commit();
 					return true;
 				}
+			}
+		}
+
+	}
+	
+	private void handleUnderflow(BNode<K> u, BNode<K> parent, K key) {
+		
+		BNode<K> leftChild = null;;
+		BNode<K> rightChild = null;;
+		
+		if (parent == null) {
+			if (!u.isLeaf && u.last == 1) {
+				leftChild = u.getChild(0);
+				rightChild = u.getChild(1);
 				
+				if (leftChild.low() && rightChild.low()) {
+					merge(u, leftChild, rightChild, 0, 0);
+					leftChild.delete();
+					rightChild.delete();
+					root.persist();
+					writeMetaData();
+				}
+			}
+			
+			return;
+		}
+		
+		int pos = Arrays.binarySearch(parent.keys, 0, parent.last, key, comparator);
+		int leftPos = -1;
+		int rightPos = -1;
+		if (pos >= 0) {
+			leftPos = pos; rightPos = pos+1;
+		}
+		else {
+			pos = -1 - pos;
+			if (pos > 0) {
+				leftPos = pos - 1;
+			}
+			rightPos = pos;
+		}
+		
+		if (leftPos >= 0) {
+			leftChild = parent.getChild(leftPos);
+			if (!leftChild.low()) {
+				rotateRight(parent, leftChild, u, leftPos);
+				leftChild.persist();
+				u.persist();
+				parent.persist();
+				if (parent == root) {
+					writeMetaData();
+				}
+				return;
+			}
+			
+		}
+		
+		if (rightPos >= 0) {
+			rightChild = parent.getChild(rightPos);
+			if (!rightChild.low()) {
+				rotateLeft(parent, u, rightChild, rightPos);
+				rightChild.persist();
+				u.persist();
+				parent.persist();
+				if (parent == root) {
+					writeMetaData();
+				}
+				return;
+			}
+		}
+		
+		if (leftChild != null) {
+			merge(parent, leftChild, u, leftPos, 2);
+			leftChild.delete();
+			u.persist();
+			parent.persist();
+			if (parent == root) {
+				writeMetaData();
+			}
+		}
+		else {
+			merge(parent, u, rightChild, rightPos, 1);
+			rightChild.delete();
+			u.persist();
+			parent.persist();
+			if (parent == root) {
+				writeMetaData();
 			}
 		}
 	}
 	
-	private void handleUnderflow(BNode<K> u, BNode<K> parent, K key) {
+	private static <K> void rotateRight(BNode<K> parent, BNode<K> left, BNode<K> right, int pos) {
+		right.insertKey(0, parent.keys[pos]);
+		if (!right.isLeaf) {
+			right.children[0] = left.children[left.last];
+			right.subtreeSizes[0] = left.subtreeSizes[left.last];
+		}
+		parent.keys[pos] = left.keys[left.last-1];
+		left.deleteKey(left.last - 1, false);
+	}
+	
+	private static <K> void rotateLeft(BNode<K> parent, BNode<K> left, BNode<K> right, int pos) {
+		left.insertKey(left.last, parent.keys[pos]);
+		if (!left.isLeaf) {
+			left.children[left.last] = right.children[0];
+			left.subtreeSizes[left.last] = right.subtreeSizes[0];			
+		}
+		parent.keys[pos] = right.keys[0];
+		right.deleteKey(0, true);
+	}
+	
+	/**
+	 * Keep right child, merge the left child to right child
+	 * @param parent
+	 * @param left
+	 * @param right
+	 * @param pos
+	 * @param opts 0: keep root, 1: keep left, 2: keep right
+	 */
+	private static <K> void merge(BNode<K> parent, BNode<K> left, BNode<K> right, int pos, int opts) {
+		int newLast = left.last + 1 + right.last;
+		K[] newKeys = Arrays.copyOf(left.keys, left.keys.length);
+		int[] newChildren = left.isLeaf ? null : Arrays.copyOf(left.children, left.children.length);
+		int[] newSubtreeSizes = left.isLeaf ? null : Arrays.copyOf(left.subtreeSizes, left.subtreeSizes.length);
+		
+		newKeys[left.last] = parent.keys[pos];
+		System.arraycopy(right.keys, 0, newKeys, left.last + 1, right.last);
+		if (!left.isLeaf) {
+			System.arraycopy(right.children, 0, newChildren, left.last + 1, right.last + 1);
+			System.arraycopy(right.subtreeSizes, 0, newSubtreeSizes, left.last + 1, right.last + 1);
+		}
+		
+		switch (opts) {
+		case 1: // keep left
+			parent.deleteKey(pos, false);
+			left.keys = newKeys;
+			left.children = newChildren;
+			left.subtreeSizes = newSubtreeSizes;
+			left.last = newLast;
+			break;
+		case 2: // keep right
+			parent.deleteKey(pos, true);
+			right.keys = newKeys;
+			right.children = newChildren;
+			right.subtreeSizes = newSubtreeSizes;
+			right.last = newLast;
+			break;
+		default: // keep parent
+			parent.keys = newKeys;
+			parent.isLeaf = left.isLeaf;
+			parent.children = newChildren;
+			parent.subtreeSizes = newSubtreeSizes;
+			parent.last = newLast;
+			break;
+		}
+		
 	}
 
 	private void handleOverflow(BNode<K> u, BNode<K> parent, K key) {
@@ -190,6 +337,9 @@ public class BTree<K> {
 		
 		if (parent != null) {
 			int pos = Arrays.binarySearch(parent.keys, 0, parent.last, key, comparator);
+			if (pos < 0) {
+				pos = -1 - pos;
+			}
 			parent.insertKey(pos, kmid);
 			parent.children[pos] = s.blockAddr;
 			parent.persist();
@@ -232,8 +382,32 @@ public class BTree<K> {
 	
 	
 	public void printTree() {
-		System.out.println("Tree ....");
-		printTree(root);
+		
+		if (root == null) {
+			System.out.println("Empty");
+		}
+		
+		Queue<BNode<K>> queue = new LinkedList<>();
+		queue.add(root);
+		while (!queue.isEmpty()) {
+			BNode<K> u = queue.poll();
+			if (u == null) {
+				System.out.println();
+			}
+			else {
+				System.out.print( Arrays.toString(Arrays.copyOf(u.keys, u.keysSize() )));
+				System.out.print(" ");
+				
+				if (!u.isLeaf) {
+					queue.add(null);
+					for (int i = 0; i < u.keysSize() + 1; i++) {
+						queue.add(u.getChild(i));
+					}
+				}
+			}
+			
+		}
+		System.out.println();
 	}
 	
 	private void printTree(BNode<K> u) {
@@ -262,9 +436,14 @@ public class BTree<K> {
 	}
 	
 	public static void main(String ... args) throws IOException {
-//		BTree btree = new BTree(new FileBackedBlockIO(new File("Test.bin"), 4096));
+		
+		
+		
+		
 		// build 2-3-4 tree
-		BTree<Integer> btree = new BTree<Integer>(new InMemoryBlockIO(4 * 100), new IntegerSerializer(), new NaturalComparator<Integer>(), 4, 2, 4, 2);
+		InMemoryBlockIO blockIO = new InMemoryBlockIO(4 * 100);
+		BTree<Integer> btree = new BTree<Integer>(blockIO, new IntegerSerializer(), new NaturalComparator<Integer>(), 5, 2, 5, 2);
+//		BTree<Integer> btree = new BTree<Integer>(new FileBackedBlockIO(new File("Test.bin"), 4096), new IntegerSerializer(), new NaturalComparator<Integer>(), 4, 2, 4, 2);
 
 		btree.add(20);
 		btree.add(30);
@@ -272,24 +451,69 @@ public class BTree<K> {
 		btree.add(1);
 		btree.add(3);
 		btree.add(5);
-		btree.printTree();
 
 		btree.delete(20);
+		
+		btree.delete(5);
+		
+		btree.add(5);
+		btree.add(6);
 		btree.printTree();
 		
-//		System.out.println(btree.find(0));
-//		System.out.println(btree.find(1));
-//		System.out.println(btree.find(2));
-//		System.out.println(btree.find(3));
-//		System.out.println(btree.find(4));
-//		System.out.println(btree.find(5));
-//		System.out.println(btree.find(6));
-//		System.out.println(btree.find(20));
-//		System.out.println(btree.find(21));
-//		System.out.println(btree.find(30));
-//		System.out.println(btree.find(31));
-//		System.out.println(btree.find(50));
-//		System.out.println(btree.find(51));
+		try (Scanner scanner = new Scanner(System.in)) {
+			while (true) {
+				System.out.print("> ");
+				String fullCommand = scanner.nextLine().trim().toLowerCase();
+				if (fullCommand.equalsIgnoreCase("quit")) {
+					break;
+				}
+				
+				String[] tokens = fullCommand.split(" +");
+				String command = tokens[0];
+				switch (command) {
+				case "add": {
+					int count = 0;
+					for (String token : tokens) {
+						try {
+							if (btree.add(Integer.parseInt(token))) {
+								count++;
+							}
+						} catch (NumberFormatException e) {}
+					}
+					System.out.println("Add " + count + " items.");
+					break;
+				}
+				case "delete": {
+					int count = 0;
+					for (String token : tokens) {
+						try {
+							if (btree.delete(Integer.parseInt(token))) {
+								count++;
+							}
+						} catch (NumberFormatException e) {}
+					}
+					System.out.println("Delete " + count + " items.");
+					break;
+				}
+				case "find": {
+					boolean found = false;
+					try {
+						found = tokens.length > 1 && (btree.find(Integer.parseInt(tokens[1])) != null);
+					} catch (NumberFormatException e) {}
+					System.out.println(found ? "Key found." : "Key not found.");
+					break;
+				}
+				case "print": {
+					btree.printTree();
+					break;
+				}
+				default:
+					System.out.println("Unknown command");
+					break;
+				}
+			}
+		}
+		
 		
 	}
 	
@@ -414,6 +638,14 @@ public class BTree<K> {
 			}
 			btree.bs.writeBlock(this.blockAddr, toBytes());
 		}
+		
+		public void delete() {
+			if (this.blockAddr == 0) {
+				throw new IllegalStateException();
+			}
+			btree.bs.freeBlock(this.blockAddr);
+			this.blockAddr = 0;
+		}
 				
 		public void insertKey(int index, K key) {
 			if (index < 0 || index > last) {
@@ -434,7 +666,7 @@ public class BTree<K> {
 			this.keys[index] = key;
 		}
 		
-		public void deleteKey(int index) {
+		public void deleteKey(int index, boolean removeLeftTree) {
 			if (index < 0 || index >= last) {
 				throw new IndexOutOfBoundsException();
 			}
@@ -443,9 +675,17 @@ public class BTree<K> {
 				this.keys[i] = this.keys[i+1];
 			}
 			if (!isLeaf) {
-				for (int i = index; i < last; i++) {
-					this.children[i] = this.children[i+1];
-					this.subtreeSizes[i] = this.subtreeSizes[i+1];
+				if (removeLeftTree) {
+					for (int i = index; i < last; i++) {
+						this.children[i] = this.children[i+1];
+						this.subtreeSizes[i] = this.subtreeSizes[i+1];
+					}
+				}
+				else {
+					for (int i = index + 1; i < last; i++) {
+						this.children[i] = this.children[i+1];
+						this.subtreeSizes[i] = this.subtreeSizes[i+1];
+					}
 				}
 			}
 			last--;
@@ -478,6 +718,10 @@ public class BTree<K> {
 			return newSibling;
 		}
 		
+		@Override
+		public String toString() {
+			return Arrays.toString(Arrays.copyOf(keys, last));
+		}
 		
 	}	
 	

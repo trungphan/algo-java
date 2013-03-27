@@ -85,12 +85,15 @@ public class BlockStore {
 	
 	private void writeMetaData() {
 		
-		List<Integer> blocksForFreeBlocks = newLogicalBlocks((this.freeBlocks.size() + 3) / (blockIO.blocksize() / 4 - 1));
+		int availIntPerBlock = blockIO.blocksize() * 4 - 1;
+		int nBlocks = (this.freeBlocks.size() + availIntPerBlock - 1 ) / availIntPerBlock;
+		List<Integer> blocksForFreeBlocks = newLogicalBlocks(nBlocks);
 		
-		List<Integer> blocksForDictBlocks = newLogicalBlocks((this.dictMap.size() + 7) / (blockIO.blocksize() / 8 - 1) );
+		nBlocks = (this.dictMap.size() * 2 + availIntPerBlock - 1 ) / availIntPerBlock;
+		List<Integer> blocksForDictBlocks = newLogicalBlocks(nBlocks);
 
 		int freeIndex = storeIntArray(blockIO, new LinkedList<>(this.freeBlocks), blocksForFreeBlocks);
-		int dictIndex = storeIntArray(blockIO, m2l(this.prevDictMap), blocksForDictBlocks);
+		int dictIndex = storeIntArray(blockIO, m2l(this.dictMap), blocksForDictBlocks);
 
 		byte[] buf = new byte[blockIO.blocksize()];
 		ByteBuffer bb = ByteBuffer.wrap(buf);
@@ -221,7 +224,12 @@ public class BlockStore {
 		
 	}
 	
-	public void flush() {
+	/**
+	 * 
+	 * Commit change
+	 * 
+	 */
+	public void commit() {
 		if (changed) {
 			writeMetaData();
 			blockIO.flush();
@@ -231,6 +239,18 @@ public class BlockStore {
 			this.prevFreeBlocks = this.freeBlocks;
 			this.freeBlocks = new HashSet<>(prevFreeBlocks);
 			this.prevMaxBlocks = this.maxBlocks;
+			this.safeFreeBlocks = new HashSet<>(this.prevFreeBlocks);
+			
+			changed = false;
+		}
+	}
+	
+	public void rollback() {
+		if (changed) {
+			blockIO.flush();
+			this.dictMap = new HashMap<>(this.prevDictMap);
+			this.freeBlocks = new HashSet<>(prevFreeBlocks);
+			this.maxBlocks = this.prevMaxBlocks;
 			this.safeFreeBlocks = new HashSet<>(this.prevFreeBlocks);
 			
 			changed = false;

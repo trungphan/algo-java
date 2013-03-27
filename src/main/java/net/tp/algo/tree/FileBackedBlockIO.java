@@ -2,10 +2,8 @@ package net.tp.algo.tree;
 
 import java.io.Closeable;
 import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileNotFoundException;
-import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.RandomAccessFile;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.util.Arrays;
@@ -13,11 +11,8 @@ import java.util.Arrays;
 public class FileBackedBlockIO implements BlockIO, Closeable {
 
 	private final int blocksize;
-	private FileInputStream fis;
-	private FileChannel fic;
-	private FileOutputStream fos;
-	private FileChannel foc;
-	
+	private RandomAccessFile raf;
+	private FileChannel fc;
 	
 	public FileBackedBlockIO(int blocksize) {
 		this(null, blocksize);
@@ -39,22 +34,11 @@ public class FileBackedBlockIO implements BlockIO, Closeable {
 
 		close();
 		
-		try {
-			this.fis = new FileInputStream(file);
-		} catch (FileNotFoundException e) {
-			throw new RuntimeException(e);
+		if (!file.exists()) {
+			file.createNewFile();
 		}
-
-		try {
-			this.fic = fis.getChannel();
-			this.fos = new FileOutputStream(file);
-			this.foc = fos.getChannel();
-		} catch (IOException e) {
-			try {
-				close();
-			} catch (IOException e1) {};
-			throw e;
-		}
+		this.raf = new RandomAccessFile(file, "rw");
+		this.fc = raf.getChannel();
 	}
 	
 	
@@ -69,7 +53,7 @@ public class FileBackedBlockIO implements BlockIO, Closeable {
 		Arrays.fill(bytes, (byte)0);
 		ByteBuffer bb = ByteBuffer.wrap(bytes);
 		try {
-			fic.read(bb);
+			fc.read(bb, i * blocksize);
 		} catch (IOException e) {
 			throw new RuntimeException(e);
 		}
@@ -89,7 +73,7 @@ public class FileBackedBlockIO implements BlockIO, Closeable {
 		}
 		ByteBuffer bb = ByteBuffer.wrap(buf);
 		try {
-			foc.write(bb, i * blocksize);
+			fc.write(bb, i * blocksize);
 		} catch (IOException e) {
 			throw new RuntimeException(e);
 		}
@@ -99,7 +83,7 @@ public class FileBackedBlockIO implements BlockIO, Closeable {
 	@Override
 	public void flush() {
 		try {
-			foc.force(false);
+			fc.force(false);
 		} catch (IOException e) {
 			throw new RuntimeException(e);
 		}
@@ -108,41 +92,20 @@ public class FileBackedBlockIO implements BlockIO, Closeable {
 
 	@Override
 	public void close() throws IOException {
-		
-		IOException ioE = null;
-		if (foc != null) {
-			try {
-				foc.close();
-				foc = null;
-			} catch (IOException e) {
-				ioE = e;
+		try {
+			if (this.fc != null) {
+				this.fc.close();
 			}
 		}
-		if (fos != null) {
-			try {
-				fos.close();
-				fos = null;
-			} catch (IOException e) {
-				ioE = e;
+		finally {
+			this.fc = null;
+			if (this.raf != null) {
+				try {
+					this.raf.close();
+				} finally {
+					this.raf = null;
+				}
 			}
-		}
-		if (fic != null) {
-			try {
-				fic.close();
-				fic = null;
-			} catch (IOException e) {
-			}
-		}
-		if (fis != null) {
-			try {
-				fis.close();
-				fis = null;
-			} catch (IOException e) {
-			}
-		}
-		
-		if (ioE != null) {
-			throw ioE;
 		}
 	}
 
