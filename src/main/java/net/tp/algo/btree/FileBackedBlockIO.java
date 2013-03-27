@@ -1,4 +1,4 @@
-package net.tp.algo.tree;
+package net.tp.algo.btree;
 
 import java.io.Closeable;
 import java.io.File;

@@ -1,4 +1,4 @@
-package net.tp.algo.tree;
+package net.tp.algo.btree;
 
 import java.util.Arrays;
 import java.util.LinkedList;
