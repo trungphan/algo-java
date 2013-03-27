@@ -93,16 +93,20 @@ public class BTree<K> {
 			BNode<K> u = root;
 			BNode<K> parent = null;
 			while (true) {
-
-				if (u.full()) {
-					handleOverflow(u, parent, key);
-				}
 				
 				int pos = Arrays.binarySearch(u.keys, 0, u.last, key, this.comparator);
 				if (pos >= 0) {
 					bs.commit(); // there might be some update before
 					return false; // key already exist
 				}
+
+				if (u.full()) {
+					u = handleOverflow(u, parent, key);
+					// update pos as elements would have changed.
+					// pos will not be >= 0 because it's checked before that key does not belong to u
+					pos = Arrays.binarySearch(u.keys, 0, u.last, key, this.comparator);
+				}
+				
 				pos = -1 - pos; // pos now becomes the insertion point
 				
 				if (u.isLeaf) {
@@ -123,12 +127,14 @@ public class BTree<K> {
 		if (root == null) {
 			return false;
 		}
-			
+
+		BNode<K> u = root;
+		BNode<K> parent = null;
 		BNode<K> found = null;
 		int foundPos = 0;
 		int pos = 0;
 		
-		for (BNode<K> u = root, parent = null; ; parent = u, u = u.getChild(pos)  ) {
+		while (true) {
 			if (u.low() || (u == root && u.keysSize() == 1)) {
 				handleUnderflow(u, parent, key);
 			}
@@ -168,14 +174,18 @@ public class BTree<K> {
 					return true;
 				}
 			}
+		
+			parent = u;
+			u = u.getChild(pos);
+			
 		}
 
 	}
 	
-	private void handleUnderflow(BNode<K> u, BNode<K> parent, K key) {
+	private BNode<K> handleUnderflow(BNode<K> u, BNode<K> parent, K key) {
 		
-		BNode<K> leftChild = null;;
-		BNode<K> rightChild = null;;
+		BNode<K> leftChild = null;
+		BNode<K> rightChild = null;
 		
 		if (parent == null) {
 			if (!u.isLeaf && u.last == 1) {
@@ -191,7 +201,7 @@ public class BTree<K> {
 				}
 			}
 			
-			return;
+			return u;
 		}
 		
 		int pos = Arrays.binarySearch(parent.keys, 0, parent.last, key, comparator);
@@ -218,7 +228,7 @@ public class BTree<K> {
 				if (parent == root) {
 					writeMetaData();
 				}
-				return;
+				return u;
 			}
 			
 		}
@@ -233,7 +243,7 @@ public class BTree<K> {
 				if (parent == root) {
 					writeMetaData();
 				}
-				return;
+				return u;
 			}
 		}
 		
@@ -255,6 +265,8 @@ public class BTree<K> {
 				writeMetaData();
 			}
 		}
+		
+		return u;
 	}
 	
 	private static <K> void rotateRight(BNode<K> parent, BNode<K> left, BNode<K> right, int pos) {
@@ -324,24 +336,80 @@ public class BTree<K> {
 		
 	}
 
-	private void handleOverflow(BNode<K> u, BNode<K> parent, K key) {
-		// TODO delay splitting
-		split(u, parent, key);
+	private BNode<K> handleOverflow(BNode<K> u, BNode<K> parent, K searchKey) {
+		
+		if (parent != null) {
+			BNode<K> leftChild = null;
+			BNode<K> rightChild = null;
+			
+			int pos = Arrays.binarySearch(parent.keys, 0, parent.last, searchKey, comparator);
+			int leftPos = -1;
+			int rightPos = -1;
+			if (pos >= 0) {
+				leftPos = pos; rightPos = pos+1;
+			}
+			else {
+				pos = -1 - pos;
+				if (pos > 0) {
+					leftPos = pos - 1;
+				}
+				rightPos = pos;
+			}
+
+			if (leftPos >= 0) {
+				leftChild = parent.getChild(leftPos);
+				if (!leftChild.full()) {
+					rotateLeft(parent, leftChild, u, leftPos);
+					leftChild.persist();
+					u.persist();
+					parent.persist();
+					if (parent == root) {
+						writeMetaData();
+					}
+					return u;
+				}
+				
+			}
+			
+			if (rightPos >= 0) {
+				rightChild = parent.getChild(rightPos);
+				if (!rightChild.full()) {
+					rotateRight(parent, u, rightChild, rightPos);
+					rightChild.persist();
+					u.persist();
+					parent.persist();
+					if (parent == root) {
+						writeMetaData();
+					}
+					return u;
+				}
+			}			
+			
+		}
+		
+		return split(u, parent, searchKey);
 	}
 
-	private void split(BNode<K> u, BNode<K> parent, K key) {
+	private BNode<K> split(BNode<K> u, BNode<K> parent, K searchKey) {
+		
+		int searchPos = Arrays.binarySearch(u.keys, 0, u.last, searchKey, comparator);
+		if (searchPos < 0) {
+			searchPos = -1 - searchPos;
+		}
+		
 		int mid = (u.last - 1) / 2;
 		K kmid = u.keys[mid];
 		BNode<K> s = u.split(mid);
 		s.persistNew();
+		u.persist();
 		
 		if (parent != null) {
-			int pos = Arrays.binarySearch(parent.keys, 0, parent.last, key, comparator);
+			int pos = Arrays.binarySearch(parent.keys, 0, parent.last, kmid, comparator);
 			if (pos < 0) {
 				pos = -1 - pos;
 			}
 			parent.insertKey(pos, kmid);
-			parent.children[pos] = s.blockAddr;
+			parent.children[pos+1] = s.blockAddr;
 			parent.persist();
 		}
 		else {
@@ -353,6 +421,8 @@ public class BTree<K> {
 			root = newRoot;
 			writeMetaData();
 		}
+		
+		return searchPos > mid ? s : u;
 	}
 	
 	public K find(K key) {
@@ -409,30 +479,36 @@ public class BTree<K> {
 		}
 		System.out.println();
 	}
-	
-	private void printTree(BNode<K> u) {
-		
-		if (u == null) {
-			System.out.println("null");
-			return;
-		}
 
-		System.out.print("Index: " + u.blockAddr);
-		System.out.print(". Keys : " + Arrays.toString(Arrays.copyOf(u.keys, u.last)));
-		if (!u.isLeaf) {
-			System.out.print(". Child: " + Arrays.toString(Arrays.copyOf(u.children, u.last + 1)));
+	@Override
+	public String toString() {
+		StringBuilder result = new StringBuilder();
+		
+		if (root == null) {
+			result.append("Empty");
 		}
 		
-		System.out.println();
-		
-		if (u.isLeaf) {
-			return;
+		Queue<BNode<K>> queue = new LinkedList<>();
+		queue.add(root);
+		while (!queue.isEmpty()) {
+			BNode<K> u = queue.poll();
+			if (u == null) {
+				result.append("\n");
+			}
+			else {
+				result.append(Arrays.toString(Arrays.copyOf(u.keys, u.keysSize() ))).append(" ");
+				
+				if (!u.isLeaf) {
+					queue.add(null);
+					for (int i = 0; i < u.keysSize() + 1; i++) {
+						queue.add(u.getChild(i));
+					}
+				}
+			}
+			
 		}
 		
-		for (int i = 0; i < u.keysSize() + 1; i++) {
-			printTree(u.getChild(i));
-		}
-		
+		return result.toString();
 	}
 	
 	public static void main(String ... args) throws IOException {
@@ -466,13 +542,15 @@ public class BTree<K> {
 			while (true) {
 				System.out.print("> ");
 				String fullCommand = scanner.nextLine().trim().toLowerCase();
-				if (fullCommand.equalsIgnoreCase("quit")) {
-					break;
-				}
 				
 				String[] tokens = fullCommand.split(" +");
 				String command = tokens[0];
 				switch (command) {
+				case "quit":
+				case "exit":
+				case "bye":
+					System.out.println("Bye!");
+					return;
 				case "add": {
 					int count = 0;
 					for (String token : tokens) {
@@ -706,6 +784,7 @@ public class BTree<K> {
 			
 			BNode<K> newSibling = new BNode<>(btree, isLeaf);
 			newSibling.last = last - mid - 1;
+			
 			last = mid;
 			System.arraycopy(keys, mid + 1, newSibling.keys, 0, keys.length - mid - 1);
 			Arrays.fill(keys, last, keys.length, 0);
