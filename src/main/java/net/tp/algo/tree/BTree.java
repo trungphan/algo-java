@@ -441,7 +441,7 @@ public class BTree<K> {
 		
 		
 		// build 2-3-4 tree
-		InMemoryBlockIO blockIO = new InMemoryBlockIO(4 * 100);
+		InMemoryBlockIO blockIO = new InMemoryBlockIO(100 * 4);
 		BTree<Integer> btree = new BTree<Integer>(blockIO, new IntegerSerializer(), new NaturalComparator<Integer>(), 5, 2, 5, 2);
 //		BTree<Integer> btree = new BTree<Integer>(new FileBackedBlockIO(new File("Test.bin"), 4096), new IntegerSerializer(), new NaturalComparator<Integer>(), 4, 2, 4, 2);
 
@@ -455,8 +455,10 @@ public class BTree<K> {
 		btree.delete(20);
 		
 		btree.delete(5);
+		btree.printTree();
 		
-		btree.add(5);
+		btree.add(5);		
+		btree.printTree();
 		btree.add(6);
 		btree.printTree();
 		
