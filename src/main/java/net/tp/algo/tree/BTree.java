@@ -205,23 +205,16 @@ public class BTree<K> {
 		}
 		
 		int pos = Arrays.binarySearch(parent.keys, 0, parent.last, key, comparator);
-		int leftPos = -1;
-		int rightPos = -1;
-		if (pos >= 0) {
-			leftPos = pos; rightPos = pos+1;
-		}
-		else {
+		int leftPos = pos >= 0 ? pos : -1 - pos -1;
+		int rightPos = pos >= 0 ? pos + 2 : -1 -pos + 1;
+		if (pos < 0) {
 			pos = -1 - pos;
-			if (pos > 0) {
-				leftPos = pos - 1;
-			}
-			rightPos = pos;
 		}
 		
 		if (leftPos >= 0) {
 			leftChild = parent.getChild(leftPos);
 			if (!leftChild.low()) {
-				rotateRight(parent, leftChild, u, leftPos);
+				rotateRight(parent, leftChild, u, pos);
 				leftChild.persist();
 				u.persist();
 				parent.persist();
@@ -233,10 +226,10 @@ public class BTree<K> {
 			
 		}
 		
-		if (rightPos >= 0) {
+		if (rightPos <= parent.last) {
 			rightChild = parent.getChild(rightPos);
 			if (!rightChild.low()) {
-				rotateLeft(parent, u, rightChild, rightPos);
+				rotateLeft(parent, u, rightChild, pos);
 				rightChild.persist();
 				u.persist();
 				parent.persist();
@@ -343,23 +336,16 @@ public class BTree<K> {
 			BNode<K> rightChild = null;
 			
 			int pos = Arrays.binarySearch(parent.keys, 0, parent.last, searchKey, comparator);
-			int leftPos = -1;
-			int rightPos = -1;
-			if (pos >= 0) {
-				leftPos = pos; rightPos = pos+1;
-			}
-			else {
+			int leftPos = pos >= 0 ? pos : -1 - pos -1;
+			int rightPos = pos >= 0 ? pos + 2 : -1 -pos + 1;
+			if (pos < 0) {
 				pos = -1 - pos;
-				if (pos > 0) {
-					leftPos = pos - 1;
-				}
-				rightPos = pos;
 			}
-
+			
 			if (leftPos >= 0) {
 				leftChild = parent.getChild(leftPos);
 				if (!leftChild.full()) {
-					rotateLeft(parent, leftChild, u, leftPos);
+					rotateLeft(parent, leftChild, u, pos - 1);
 					leftChild.persist();
 					u.persist();
 					parent.persist();
@@ -371,10 +357,10 @@ public class BTree<K> {
 				
 			}
 			
-			if (rightPos >= 0) {
+			if (rightPos <= parent.last) {
 				rightChild = parent.getChild(rightPos);
 				if (!rightChild.full()) {
-					rotateRight(parent, u, rightChild, rightPos);
+					rotateRight(parent, u, rightChild, pos);
 					rightChild.persist();
 					u.persist();
 					parent.persist();
@@ -383,7 +369,7 @@ public class BTree<K> {
 					}
 					return u;
 				}
-			}			
+			}
 			
 		}
 		
