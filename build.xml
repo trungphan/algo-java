@@ -1,6 +1,19 @@
 <project name="algo-java" xmlns:ivy="antlib:org.apache.ivy.ant" basedir=".">
 	
+	<property name="src" value="${basedir}/src/main/java"></property>
+	<property name="doc" value="${basedir}/doc"></property>
+	
 	<target name="resolve">
 		<ivy:retrieve/>
 	</target>
+	
+	
+	<target name="javadoc">
+		<javadoc destdir="${doc}">
+			<sourcepath>
+				<path path="${src}"></path>
+			</sourcepath>
+		</javadoc>
+	</target>
+	
 </project>
