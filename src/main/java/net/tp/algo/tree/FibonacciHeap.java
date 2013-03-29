@@ -10,8 +10,7 @@ import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Random;
 
-import junit.framework.Assert;
-
+import org.junit.Assert;
 import org.junit.Test;
 
 import net.tp.algo.util.NaturalComparator;
@@ -21,9 +20,6 @@ public class FibonacciHeap<E> implements Heap<E> {
 
 	private final Comparator<? super E> comparator;
 
-//	private Node<E> min;
-//	private List<Node<E>> trees;
-	
 	private Node<E> min;
 	
 	private int n;
@@ -156,22 +152,6 @@ public class FibonacciHeap<E> implements Heap<E> {
 		}
 		
 	}
-
-//	private Node<E> merge(Node<E> tree1, Node<E> tree2) {
-//		if (tree1 == tree2 || tree1.heap != this || tree2.heap != this) {
-//			throw new IllegalArgumentException();
-//		}
-//
-//		if (compare(tree1.element))
-//		
-////		
-////		Node<E> r = compare(tree1.element, tree2.element) <= 0 ? tree1 : tree2;
-////		Node<E> o = r == tree1 ? tree2 : tree1;
-////		
-////		o.detach();
-////		r.addChild(o);
-////		return r;
-//	}
 	
 	@Override
 	public E head() {
@@ -276,10 +256,12 @@ public class FibonacciHeap<E> implements Heap<E> {
 		return node;
 	}
 	
+	@SuppressWarnings("unchecked")
 	private int compare(E e1, E e2) {
 		return comparator != null ? comparator.compare(e1, e2) : ((Comparable<E>)e1).compareTo(e2);
 	}
 
+	@SuppressWarnings("unchecked")
 	@Override
 	public E remove(Ref ref) {
 		
@@ -353,6 +335,7 @@ public class FibonacciHeap<E> implements Heap<E> {
 		return null;
 	}
 
+	@SuppressWarnings("unchecked")
 	@Override
 	public void update(Ref ref) {
 		
