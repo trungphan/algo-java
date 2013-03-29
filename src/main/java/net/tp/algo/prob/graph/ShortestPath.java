@@ -7,14 +7,16 @@ import java.util.Arrays;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.Queue;
 import java.util.Scanner;
 import java.util.Set;
 
+import net.tp.algo.graph.Graph;
 import net.tp.algo.graph.SimpleWeightedGraph;
 import net.tp.algo.graph.WeightedGraph;
-import net.tp.algo.tree.BinaryHeap;
 import net.tp.algo.tree.Heap;
 import net.tp.algo.tree.HeapFactory;
 import net.tp.algo.util.Ref;
@@ -22,11 +24,41 @@ import net.tp.algo.util.Ref;
 import org.junit.Assert;
 import org.junit.Test;
 
-import com.sun.org.apache.xalan.internal.xsltc.dom.MultiValuedNodeHeapIterator.HeapNode;
-
 public class ShortestPath {
 
 	
+	
+	/**
+	 * 
+	 * @param graph undirected graph
+	 * @param source
+	 * @return
+	 */
+	public static <T> Map<T, Integer> shortestPathByBFS(Graph<T> graph, T source) {
+		
+		Map<T, Integer> distances = new HashMap<>();
+		Set<T> marked = new HashSet<>();
+		
+		Queue<T> queue = new LinkedList<>();
+		queue.add(source);
+		marked.add(source);
+		distances.put(source,  0);
+		
+		while (!queue.isEmpty()) {
+			T u = queue.poll();
+			int du = distances.get(u);
+			
+			for (T w : graph.edges(u)) {
+				if (!marked.contains(w)) {
+					marked.add(w);
+					distances.put(w, du + 1);
+					queue.add(w);
+				}
+			}
+		}
+		
+		return distances;
+	}
 	
 	
 	/**
@@ -45,7 +77,7 @@ public class ShortestPath {
 	 * @param source
 	 * @param heapFactory provide customized implementation for better performance
 	 */
-	public static <T> Map<T, Integer> dijkstra(WeightedGraph<T, Integer> graph, T source, HeapFactory<T> heapFactory) {
+	public static <T> Map<T, Integer> shortestPathByDijkstra(WeightedGraph<T, Integer> graph, T source, HeapFactory<T> heapFactory) {
 
 		final Map<T, Integer> distances = new HashMap<>(); // store the shortest distances between node u to source.
 		distances.put(source, 0);
@@ -102,7 +134,7 @@ public class ShortestPath {
         		.e(1, 3, 3)
         		.e(2, 3, 2);
 
-        	Map<Integer, Integer> distances = ShortestPath.dijkstra(graph, 1, HeapFactory.binaryHeap(Integer.class));
+        	Map<Integer, Integer> distances = ShortestPath.shortestPathByDijkstra(graph, 1, HeapFactory.binaryHeap(Integer.class));
 
             System.out.println(distances);
         }
@@ -128,7 +160,7 @@ public class ShortestPath {
 
 
             long startTime = System.nanoTime();
-            Map<Integer, Integer> distances = ShortestPath.dijkstra(graph, 1, HeapFactory.fibonacciHeap(Integer.class));
+            Map<Integer, Integer> distances = ShortestPath.shortestPathByDijkstra(graph, 1, HeapFactory.fibonacciHeap(Integer.class));
             long duration = System.nanoTime() - startTime;
             System.out.println("Duration: " + duration / 1000000);
 
